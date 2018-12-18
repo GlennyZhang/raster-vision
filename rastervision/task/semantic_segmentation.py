@@ -1,10 +1,14 @@
-import numpy as np
-
 from typing import List
+import logging
+
+import numpy as np
 
 from .task import Task
 from rastervision.core.box import Box
 from rastervision.data.scene import Scene
+from rastervision.data.label import SemanticSegmentationLabels
+
+log = logging.getLogger(__name__)
 
 
 def get_random_sample_train_windows(label_store, chip_size, class_map, extent,
@@ -113,3 +117,43 @@ class SemanticSegmentation(Task):
     def save_debug_predict_image(self, scene, debug_dir_uri):
         # TODO implement this
         pass
+
+    def predict(self, scenes, tmp_dir):
+        """Make predictions for scenes.
+
+        The predictions are saved to the prediction_label_store in
+        each scene.
+
+        Args:
+            scenes: list of Scenes
+        """
+        self.backend.load_model(tmp_dir)
+
+        for scene in scenes:
+            with scene.activate():
+                labels = self.predict_scene(scene, tmp_dir)
+                label_store = scene.prediction_label_store
+                label_store.save(labels)
+
+                if self.config.debug and self.config.predict_debug_uri:
+                    self.save_debug_predict_image(
+                        scene, self.config.predict_debug_uri)
+
+    def predict_scene(self, scene, tmp_dir):
+        """Predict on a single scene, and return the labels."""
+        log.info('Making predictions for scene')
+        raster_source = scene.raster_source
+        windows = self.get_predict_windows(raster_source.get_extent())
+
+        def label_fn(window):
+            chip = raster_source.get_chip(window)
+            if np.any(chip):
+                chip = raster_source.get_chip(window)
+                label_arr = self.backend.predict(
+                    chip, tmp_dir)
+            else:
+                label_arr = np.zeros(())
+            print('.', end='', flush=True)
+            return label_arr
+
+        return SemanticSegmentationLabels(windows, label_fn)

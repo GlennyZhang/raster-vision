@@ -16,7 +16,6 @@ from rastervision.core.box import Box
 from rastervision.core.class_map import ClassMap
 from rastervision.backend import Backend
 from rastervision.data.scene import Scene
-from rastervision.data.label import SemanticSegmentationLabels
 from rastervision.core.training_data import TrainingData
 from rastervision.backend.tf_object_detection import (write_tf_record, TRAIN,
                                                       VALIDATION)
@@ -52,7 +51,7 @@ def make_tf_examples(training_data: TrainingData, class_map: ClassMap) -> List:
     tf_examples = []
     log.info('Creating TFRecord')
     for chip, window, labels in training_data:
-        tf_example = create_tf_example(chip, window, labels.to_array(),
+        tf_example = create_tf_example(chip, window, labels.get_label_arr(window),
                                        class_map)
         tf_examples.append(tf_example)
     return tf_examples
@@ -652,29 +651,18 @@ class TFDeeplab(Backend):
                 tf.import_graph_def(graph_def, name='')
             self.sess = tf.Session(graph=graph)
 
-    def predict(self, chips: np.ndarray, windows: List[Box],
-                tmp_dir: str) -> SemanticSegmentationLabels:
+    def predict(self, chip: np.ndarray, tmp_dir: str) -> np.ndarray:
         """Predict using an already-trained DeepLab model.
 
         Args:
-            chips: An np.ndarray containing the image data.
-            windows: A list of windows corresponding to the respective
-                 training chips.
-             tmp_dir: (str) temporary directory to use
-        Returns:
-             A list of Box × np.ndarray pairs.
+            chip: An np.ndarray containing the image data.
+            tmp_dir: (str) temporary directory to use
 
+        Returns:
+             an np.ndarray with the same dimensions as chip containing the labels
+                (where each value is a class_id)
         """
         self.load_model(tmp_dir)
-        labels = SemanticSegmentationLabels()
-
-        # Feeding in one chip at a time because the model doesn't seem to
-        # accept > 1.
-        # TODO fix this
-        for ind, window in enumerate(windows):
-            class_labels = self.sess.run(
-                OUTPUT_TENSOR_NAME,
-                feed_dict={INPUT_TENSOR_NAME: [chips[ind]]})[0]
-            labels.add_label_pair(window, class_labels)
-
-        return labels
+        label_arr = self.sess.run(
+            OUTPUT_TENSOR_NAME, feed_dict={INPUT_TENSOR_NAME: [chip]})[0]
+        return label_arr

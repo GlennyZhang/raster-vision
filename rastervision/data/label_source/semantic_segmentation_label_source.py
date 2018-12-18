@@ -57,7 +57,8 @@ class SemanticSegmentationLabelSource(ActivateMixin, LabelSource):
 
         return target_count >= target_count_threshold
 
-    def get_labels(self, window: Union[Box, None] = None) -> np.ndarray:
+    def get_labels(self, window: Union[Box, None] = None,
+                   chip_size=1000) -> np.ndarray:
         """Get labels from a window.
 
         If window is not None then a label window is clipped from
@@ -68,17 +69,23 @@ class SemanticSegmentationLabelSource(ActivateMixin, LabelSource):
         Returns:
              SemanticSegmentationLabels covering window
         """
+
+        def label_fn(_window):
+            raw_labels = self.source.get_raw_chip(_window)
+
+            if self.class_transformer is not None:
+                labels = self.class_transformer.rgb_to_class(raw_labels)
+            else:
+                labels = np.squeeze(raw_labels)
+
+            return labels
+
+        windows = [window]
         if window is None:
-            raw_labels = self.source.get_raw_image_array()
-        else:
-            raw_labels = self.source.get_raw_chip(window)
+            window = self.source.get_extent()
+            windows = window.get_windows(chip_size, chip_size)
 
-        if self.class_transformer is not None:
-            labels = self.class_transformer.rgb_to_class(raw_labels)
-        else:
-            labels = np.squeeze(raw_labels)
-
-        return SemanticSegmentationLabels.from_array(labels)
+        return SemanticSegmentationLabels(windows, label_fn)
 
     def _subcomponents_to_activate(self):
         return [self.source]
